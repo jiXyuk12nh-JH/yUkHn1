@@ -30,12 +30,6 @@ local isServerHopEnabled = true
 local currentSeat = nil
 
 -- ----------------------------------------------------
--- 키 설정 (추가됨)
--- ----------------------------------------------------
-local SCRIPT_KEY = "0068114e-3ae8-4061-82ae-0e592eb6114b"
-local EXTERNAL_SCRIPT_URL = "https://api.jnkie.com/api/v1/luascripts/public/2ddebb6cd08f6ad0826e2d014d767bf5d2325d19a761871459ee47a0b5982ad9/download"
-
--- ----------------------------------------------------
 -- 1. 가로 확장 UI 생성 (가로 360, 세로 40으로 와이드하게 조정)
 -- ----------------------------------------------------
 local screenGui = Instance.new("ScreenGui")
@@ -138,10 +132,7 @@ local function serverHop()
 		if queue then
 			queue([[
 				repeat task.wait() until game:IsLoaded()
-				local key = "0068114e-3ae8-4061-82ae-0e592eb6114b"
-				local url = "https://api.jnkie.com/api/v1/luascripts/public/2ddebb6cd08f6ad0826e2d014d767bf5d2325d19a761871459ee47a0b5982ad9/download"
-				-- 외부 스크립트를 로드만 하고 실행하지 않음 (원본 방식 유지)
-				loadstring(game:HttpGet(url))()
+				loadstring(game:HttpGet("https://gist.githubusercontent.com/GUMI2029/9c38becd1f90e08aa027b7bda39b73c3/raw/bot_no_seat_slow_obfuscated.lua"))()
 			]])
 		end
 	end)
@@ -177,8 +168,7 @@ end)
 local function runExternalScript()
 	if not isAutoSearching then return end
 	pcall(function()
-		-- 원본 방식 유지: 로드만 하고 실행하지 않음
-		loadstring(game:HttpGet(EXTERNAL_SCRIPT_URL))()
+		loadstring(game:HttpGet("https://gist.githubusercontent.com/GUMI2029/9c38becd1f90e08aa027b7bda39b73c3/raw/bot_no_seat_slow_obfuscated.lua"))()
 	end)
 end
 
