@@ -1,287 +1,769 @@
--- ----------------------------------------------------
--- 안전장치: 제공해주신 게임 ID와 완전히 일치하지 않으면 즉시 킥(Kick)
--- ----------------------------------------------------
-local TARGET_PLACE_ID = 95099570361956  -- 요청하신 정확한 게임 고유 ID
+-- Bloxstrap with Obsidian UI
+local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
 
-if game.PlaceId ~= TARGET_PLACE_ID then
-	game:GetService("Players").LocalPlayer:Kick("❌ 허용되지 않은 게임입니다. 스크립트 실행이 차단되었습니다.")
-	return
+if not isfile("Bloxstrap/FFlags.json") then 
+    writefile("Bloxstrap/FFlags.json", "[]") 
 end
 
--- 익스큐터 중복 실행 방지
-if game:GetService("CoreGui"):FindFirstChild("AutoSeatGui") then
-	game:GetService("CoreGui").AutoSeatGui:Destroy()
+local function loadFunction(func: string)
+    return loadstring(game:HttpGet("https://raw.githubusercontent.com/qwertyui-is-back/Bloxstrap/refs/heads/main/Main/Functions/"..func..".lua"))()
 end
 
-local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
-local CoreGui = game:GetService("CoreGui")
-local HttpService = game:GetService("HttpService")
-local TeleportService = game:GetService("TeleportService")
+local loadFunc = loadFunction
+local cloneref = cloneref or function(...) return ... end
+local players = cloneref(game:GetService('Players'))
+local lplr = cloneref(game:GetService('Players')).LocalPlayer
+local humanoid = lplr.Character:FindFirstChild('Humanoid')
+local HttpService = cloneref(game.GetService(game, "HttpService"))
+local UserInputService = cloneref(game.GetService(game, "UserInputService"))
+local getgenv = getgenv or _G
+local files: table = {}
 
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local rootPart = character:WaitForChild("HumanoidRootPart")
+local writefile = writefile or function(name: string, src: string)
+    files[name] = src
+end
 
--- 상태 변수
-local isAutoSearching = true
-local isServerHopEnabled = true
-local currentSeat = nil
+local isfile = isfile or function(file: string)
+    return readfile(file) ~= nil and true or false
+end
 
--- ----------------------------------------------------
--- 1. 가로 확장 UI 생성 (가로 360, 세로 40으로 와이드하게 조정)
--- ----------------------------------------------------
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AutoSeatGui"
-if syn and syn.protect_gui then syn.protect_gui(screenGui) end 
-screenGui.ResetOnSpawn = false
-screenGui.Parent = CoreGui
+getgenv().Bloxstrap = {}
+Bloxstrap.TouchEnabled = UserInputService.TouchEnabled
 
-local mainFrame = Instance.new("Frame")
-mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 360, 0, 40) -- 가로를 360으로 쫙 넓힘
-mainFrame.Position = UDim2.new(0.5, -180, 0.05, 0)
-mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-mainFrame.BorderSizePixel = 0
-mainFrame.Active = true
-mainFrame.Parent = screenGui
+Bloxstrap.Config = setmetatable({
+    OofSound = false,
+    FPS = 120,
+    AntiAliasingQuality = "Automatic",
+    LightingTechnology = "Chosen by game",
+    TextureQuality = "Automatic",
+    DisablePlayerShadows = false,
+    DisablePostFX = false,
+    DisableTerrainTextures = false,
+    GraySky = false,
+    Desync = false,
+    HitregFix = false,
+    customfonttoggle = false,
+    customfontroblox = '',
+    customtopbar = false,
+    CustomFont = '',
+    CameraSensitivity = 1,
+    CrosshairImage = '',
+    TouchUiSize = 1,
+    DeRendering = false,
+    GUIScale = false,
+    TouchUI = false,
+    Crosshair = false,
+    RotatingHotbar = false,
+    DisplayFPS = false
+}, {
+    __index = function(s, i)
+        s[i] = false
+        return s[i]
+    end
+})
 
-local uiCorner = Instance.new("UICorner")
-uiCorner.CornerRadius = UDim.new(0, 6)
-uiCorner.Parent = mainFrame
+local conf = Bloxstrap.Config
+Bloxstrap.canUpdate = false
 
--- 오토 토글 버튼 (좌측 - 와이드)
-local autoButton = Instance.new("TextButton")
-autoButton.Name = "AutoButton"
-autoButton.Size = UDim2.new(0, 110, 1, -10) -- 가로 너비 확장
-autoButton.Position = UDim2.new(0, 6, 0, 5)
-autoButton.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
-autoButton.Text = "오토 매칭: ON"
-autoButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-autoButton.Font = Enum.Font.SourceSansBold
-autoButton.TextSize = 13
-autoButton.Parent = mainFrame
+Bloxstrap.UpdateConfig = function(obj: string, val: any)
+    if not Bloxstrap.canUpdate then 
+        Bloxstrap.Config = conf 
+        return 
+    end
+    Bloxstrap.Config[obj] = val
+end
 
-local btnCorner1 = Instance.new("UICorner")
-btnCorner1.CornerRadius = UDim.new(0, 4)
-btnCorner1.Parent = autoButton
+Bloxstrap.SaveConfig = function()
+    return writefile("Bloxstrap/Main/Configs/Default.json", HttpService:JSONEncode(Bloxstrap.Config))
+end
 
--- 15분 자동 이동 토글 버튼 (중앙 - 와이드)
-local hopButton = Instance.new("TextButton")
-hopButton.Name = "HopButton"
-hopButton.Size = UDim2.new(0, 120, 1, -10) -- 가로 너비 확장
-hopButton.Position = UDim2.new(0, 122, 0, 5)
-hopButton.BackgroundColor3 = Color3.fromRGB(130, 30, 180)
-hopButton.Text = "15분 자동이동: ON"
-hopButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-hopButton.Font = Enum.Font.SourceSansBold
-hopButton.TextSize = 12
-hopButton.Parent = mainFrame
+if isfile("Bloxstrap/Main/Configs/Default.json") then
+    Bloxstrap.Config = HttpService:JSONDecode(readfile("Bloxstrap/Main/Configs/Default.json"))
+    conf = Bloxstrap.Config
+end
 
-local btnCorner2 = Instance.new("UICorner")
-btnCorner2.CornerRadius = UDim.new(0, 4)
-btnCorner2.Parent = hopButton
+local notif = function(a, b)
+    cloneref(game:GetService("StarterGui")):SetCore("SendNotification", {
+        Title = 'Bloxstrap', 
+        Text = a,
+        Duration = b or 6
+    })
+end
 
--- 즉시 강제 서버 이동 버튼 (우측 - 와이드)
-local forceHopButton = Instance.new("TextButton")
-forceHopButton.Name = "ForceHopButton"
-forceHopButton.Size = UDim2.new(0, 106, 1, -10) -- 가로 너비 확장
-forceHopButton.Position = UDim2.new(0, 248, 0, 5)
-forceHopButton.BackgroundColor3 = Color3.fromRGB(210, 100, 10)
-forceHopButton.Text = "지금 강제이동"
-forceHopButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-forceHopButton.Font = Enum.Font.SourceSansBold
-forceHopButton.TextSize = 13
-forceHopButton.Parent = mainFrame
+Bloxstrap.error = notif
+Bloxstrap.success = notif
+Bloxstrap.info = notif
+Bloxstrap.ToggleFFlag = loadFunc("ToggleFFlag")
+Bloxstrap.GetFFlag = loadFunc("GetFFlag")
 
-local btnCorner3 = Instance.new("UICorner")
-btnCorner3.CornerRadius = UDim.new(0, 4)
-btnCorner3.Parent = forceHopButton
+-- Window 만들기
+local Window = Library:CreateWindow({
+    Title = "Bloxstrap",
+    Footer = "v1.0",
+    Icon = 95816097006870,
+    NotifySide = "Right",
+    ShowCustomCursor = true,
+})
 
--- UI 드래그 기능 (모바일/PC 지원)
-local dragging, dragInput, dragStart, startPos
-mainFrame.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		dragging = true
-		dragStart = input.Position
-		startPos = mainFrame.Position
-		input.Changed:Connect(function()
-			if input.UserInputState == Enum.UserInputState.End then dragging = false end
-		end)
-	end
+-- Tabs
+local Tabs = {
+    Main = Window:AddTab("Main", "user"),
+    Mods = Window:AddTab("Mods", "wrench"),
+    Engine = Window:AddTab("Engine", "settings"),
+    Appearance = Window:AddTab("Appearance", "paintbrush-2"),
+    ["UI Settings"] = Window:AddTab("UI Settings", "settings"),
+}
+
+-- ===== MAIN TAB =====
+local MainGroup = Tabs.Main:AddLeftGroupbox("General Settings", "boxes")
+
+MainGroup:AddToggle("OofSound", {
+    Text = isfile('Bloxstrap/deathsound.mp3') and 'Custom Death Sound' or 'Old Death Sound',
+    Default = Bloxstrap.Config.OofSound,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig("OofSound", Value)
+        if Value then
+            local deathsoundConnection
+            local function addcon()
+                if getcustomasset == nil then return end
+                if deathsoundConnection then
+                    deathsoundConnection:Disconnect()
+                    deathsoundConnection = nil
+                end
+                if not lplr.Character then
+                    repeat task.wait() until lplr.Character
+                end
+                if not lplr.Character:FindFirstChild('Humanoid') then
+                    repeat task.wait() until lplr.Character:FindFirstChild('Humanoid')
+                end
+                local humanoid = lplr.Character.Humanoid
+                repeat task.wait() until humanoid.Parent ~= nil
+                deathsoundConnection = humanoid.HealthChanged:Connect(function()
+                    if humanoid.Health <= 0 then
+                        game:GetService("Players").LocalPlayer.PlayerScripts.RbxCharacterSounds.Enabled = false
+                        local sound = Instance.new("Sound", workspace)
+                        sound.SoundId = isfile('Bloxstrap/deathsound.mp3') and getcustomasset('Bloxstrap/deathsound.mp3') or isfile('Bloxstrap/oofsound.mp3') and getcustomasset('Bloxstrap/oofsound.mp3')
+                        sound.PlayOnRemove = true 
+                        sound.Volume = 0.5
+                        sound:Destroy()
+                    end
+                end)
+            end
+            addcon()
+            lplr.CharacterAdded:Connect(addcon)
+        end
+    end
+})
+
+MainGroup:AddToggle("DisplayFPS", {
+    Text = "Display FPS",
+    Default = Bloxstrap.Config.DisplayFPS,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig("DisplayFPS", Value)
+        Bloxstrap.ToggleFFlag('FFlagDebugDisplayFPS', Value)
+    end
+})
+
+MainGroup:AddSlider("CameraSensitivity", {
+    Text = "Camera Sensitivity",
+    Min = 1,
+    Max = 7,
+    Increase = 0.1,
+    Default = Bloxstrap.Config.CameraSensitivity,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig('CameraSensitivity', Value)
+        pcall(function()
+            local camerascript = require(lplr.PlayerScripts.PlayerModule.CameraModule.CameraInput)
+            local old = camerascript.getRotation
+            camerascript.getRotation = function(...)
+                return old(...) * Value
+            end
+        end)
+    end
+})
+
+-- ===== MODS TAB =====
+local ModsGroup = Tabs.Mods:AddLeftGroupbox("Fast Flags", "wrench")
+
+ModsGroup:AddToggle("GraySky", {
+    Text = "Gray Sky",
+    Description = "Turns the sky gray (Requires rejoin)",
+    Default = Bloxstrap.Config.GraySky,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig("GraySky", Value)
+        Bloxstrap.ToggleFFlag("FFlagDebugSkyGray", Value)
+    end
+})
+
+ModsGroup:AddToggle("Desync", {
+    Text = "Desync",
+    Description = "Lags your character behind on other screens",
+    Default = Bloxstrap.Config.Desync,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig("Desync", Value)
+        Bloxstrap.ToggleFFlag("DFIntS2PhysicsSenderRate", Value and 38000 or 15)
+    end
+})
+
+ModsGroup:AddToggle("HitregFix", {
+    Text = "Hitreg Fix",
+    Description = "Makes hitreg better in most games",
+    Default = Bloxstrap.Config.HitregFix,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig("HitregFix", Value)
+        local FFlags = [[
+        { 
+          "DFIntCodecMaxIncomingPackets": "100",
+          "DFIntCodecMaxOutgoingFrames": "10000",
+          "DFIntLargePacketQueueSizeCutoffMB": "1000",
+          "DFIntMaxProcessPacketsJobScaling": "10000",
+          "DFIntMaxProcessPacketsStepsAccumulated": "0",
+          "DFIntMaxProcessPacketsStepsPerCyclic": "5000",
+          "DFIntMegaReplicatorNetworkQualityProcessorUnit": "10",
+          "DFIntNetworkLatencyTolerance": "1",
+          "DFIntNetworkPrediction": "120",
+          "DFIntOptimizePingThreshold": "50",
+          "DFIntPlayerNetworkUpdateQueueSize": "20",
+          "DFIntPlayerNetworkUpdateRate": "60",
+          "DFIntRaknetBandwidthInfluxHundredthsPercentageV2": "10000",
+          "DFIntRaknetBandwidthPingSendEveryXSeconds": "1",
+          "DFIntRakNetLoopMs": "1",
+          "DFIntRakNetResendRttMultiple": "1",
+          "DFIntServerPhysicsUpdateRate": "60",
+          "DFIntServerTickRate": "60",
+          "DFIntWaitOnRecvFromLoopEndedMS": "100",
+          "DFIntWaitOnUpdateNetworkLoopEndedMS": "100",
+          "FFlagOptimizeNetwork": "true",
+          "FFlagOptimizeNetworkRouting": "true",
+          "FFlagOptimizeNetworkTransport": "true",
+          "FFlagOptimizeServerTickRate": "true",
+          "FIntRakNetResendBufferArrayLength": "128"
+        }]]
+        FFlags = HttpService:JSONDecode(FFlags:gsub('"True"', "true"):gsub('"False"', "false"))
+        for i, v in FFlags do
+            Bloxstrap.ToggleFFlag(i, v)
+        end
+    end
+})
+
+-- ===== ENGINE TAB =====
+local EngineGroup = Tabs.Engine:AddLeftGroupbox("Engine Settings", "settings")
+
+EngineGroup:AddTextBox("FramerateLimit", {
+    Text = "Framerate Limit",
+    Description = "Set to 0 for unlimited FPS",
+    Default = tostring(Bloxstrap.Config.FPS),
+    Callback = function(Value)
+        local fps = tonumber(Value)
+        if fps == nil then return end
+        Bloxstrap.UpdateConfig("FPS", fps)
+        Bloxstrap.ToggleFFlag('FFlagTaskSchedulerLimitTargetFpsTo2402', fps and fps >= 70)
+        if fps > 0 then
+            setfpscap(fps)
+            Bloxstrap.ToggleFFlag("DFIntTaskSchedulerTargetFps", fps)
+        else
+            setfpscap(9e9)
+            Bloxstrap.ToggleFFlag("DFIntTaskSchedulerTargetFps", 120)
+        end
+    end
+})
+
+EngineGroup:AddDropdown("AntiAliasingQuality", {
+    Text = "Anti-aliasing Quality",
+    Options = {"Automatic", "1x", "2x", "4x"},
+    Default = Bloxstrap.Config.AntiAliasingQuality,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig("AntiAliasingQuality", Value)
+        if not UserInputService.TouchEnabled then return end
+        local msaa = Value:find("x") and Value:gsub("x", "") or 0
+        Bloxstrap.ToggleFFlag("FIntDebugForceMSAASamples", msaa)
+    end
+})
+
+EngineGroup:AddDropdown("LightingTechnology", {
+    Text = "Lighting Technology",
+    Options = {"Chosen by game", "Voxel (Phase 1)", "Shadow Map (Phase 2)", "Future (Phase 3)"},
+    Default = Bloxstrap.Config.LightingTechnology,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig("LightingTechnology", Value)
+        pcall(function()
+            local str = Value:lower()
+            if str:find("voxel") then
+                sethiddenproperty(game.Lighting, "Technology", "Voxel")
+                Bloxstrap.ToggleFFlag("DFFlagDebugRenderForceTechnologyVoxel", true)
+                Bloxstrap.ToggleFFlag("DFFlagDebugRenderForceFutureIsBrightPhase2", false)
+                Bloxstrap.ToggleFFlag("DFFlagDebugRenderForceFutureIsBrightPhase3", false)
+            elseif str:find("shadow") then
+                sethiddenproperty(game.Lighting, "Technology", "ShadowMap")
+                Bloxstrap.ToggleFFlag("DFFlagDebugRenderForceTechnologyVoxel", false)
+                Bloxstrap.ToggleFFlag("DFFlagDebugRenderForceFutureIsBrightPhase2", true)
+                Bloxstrap.ToggleFFlag("DFFlagDebugRenderForceFutureIsBrightPhase3", false)
+            elseif str:find("future") then
+                sethiddenproperty(game.Lighting, "Technology", "Future")
+                Bloxstrap.ToggleFFlag("DFFlagDebugRenderForceTechnologyVoxel", false)
+                Bloxstrap.ToggleFFlag("DFFlagDebugRenderForceFutureIsBrightPhase2", false)
+                Bloxstrap.ToggleFFlag("DFFlagDebugRenderForceFutureIsBrightPhase3", true)
+            else
+                Bloxstrap.ToggleFFlag("DFFlagDebugRenderForceTechnologyVoxel", false)
+                Bloxstrap.ToggleFFlag("DFFlagDebugRenderForceFutureIsBrightPhase2", false)
+                Bloxstrap.ToggleFFlag("DFFlagDebugRenderForceFutureIsBrightPhase3", false)
+            end
+        end)
+    end
+})
+
+EngineGroup:AddDropdown("TextureQuality", {
+    Text = "Texture Quality",
+    Options = {"Automatic", "Lowest (Requires rejoin)", "Low", "Medium", "High", "Highest"},
+    Default = Bloxstrap.Config.TextureQuality,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig("TextureQuality", Value)
+        local str = Value:lower()
+        if str:find("lowest") then
+            Bloxstrap.ToggleFFlag("DFFlagTextureQualityOverrideEnabled", true)
+            Bloxstrap.ToggleFFlag("DFIntTextureQualityOverride", 0)
+            Bloxstrap.ToggleFFlag("FIntDebugTextureManagerSkipMips", 2)
+        elseif str:find("low") then
+            Bloxstrap.ToggleFFlag("DFFlagTextureQualityOverrideEnabled", true)
+            Bloxstrap.ToggleFFlag("DFIntTextureQualityOverride", 0)
+            Bloxstrap.ToggleFFlag("FIntDebugTextureManagerSkipMips", 0)
+        elseif str:find("medium") then
+            Bloxstrap.ToggleFFlag("DFFlagTextureQualityOverrideEnabled", true)
+            Bloxstrap.ToggleFFlag("DFIntTextureQualityOverride", 1)
+            Bloxstrap.ToggleFFlag("FIntDebugTextureManagerSkipMips", 0)
+        elseif str:find("high") and not str:find("highest") then
+            Bloxstrap.ToggleFFlag("DFFlagTextureQualityOverrideEnabled", true)
+            Bloxstrap.ToggleFFlag("DFIntTextureQualityOverride", 2)
+            Bloxstrap.ToggleFFlag("FIntDebugTextureManagerSkipMips", 0)
+        elseif str:find("highest") then
+            Bloxstrap.ToggleFFlag("DFFlagTextureQualityOverrideEnabled", true)
+            Bloxstrap.ToggleFFlag("DFIntTextureQualityOverride", 3)
+            Bloxstrap.ToggleFFlag("FIntDebugTextureManagerSkipMips", 0)
+        else
+            Bloxstrap.ToggleFFlag("DFFlagTextureQualityOverrideEnabled", false)
+        end
+    end
+})
+
+local EngineGroup2 = Tabs.Engine:AddRightGroupbox("Performance", "settings")
+
+EngineGroup2:AddToggle("DisablePlayerShadows", {
+    Text = "Disable Player Shadows",
+    Default = Bloxstrap.Config.DisablePlayerShadows,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig("DisablePlayerShadows", Value)
+        Bloxstrap.ToggleFFlag("FIntRenderShadowIntensity", Value and 0 or 1)
+    end
+})
+
+EngineGroup2:AddToggle("DisablePostFX", {
+    Text = "Disable Post-Processing Effects",
+    Default = Bloxstrap.Config.DisablePostFX,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig("DisablePostFX", Value)
+        Bloxstrap.ToggleFFlag("FFlagDisablePostFx", Value)
+    end
+})
+
+EngineGroup2:AddToggle("DisableTerrainTextures", {
+    Text = "Disable Terrain Textures",
+    Default = Bloxstrap.Config.DisableTerrainTextures,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig("DisableTerrainTextures", Value)
+        Bloxstrap.ToggleFFlag("FIntTerrainArraySliceSize", Value and 0 or 4)
+    end
+})
+
+-- ===== APPEARANCE TAB =====
+local AppearanceGroup = Tabs.Appearance:AddLeftGroupbox("Visuals", "paintbrush-2")
+
+AppearanceGroup:AddToggle("DeRendering", {
+    Text = "De-Rendering",
+    Description = "Stops effects and player animations from rendering",
+    Default = Bloxstrap.Config.DeRendering,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig('DeRendering', Value)
+        Bloxstrap.ToggleFFlag('FFlagDisablePostFx', Value)
+        if Value then
+            task.spawn(function()
+                repeat
+                    for i,v in players:GetPlayers() do
+                        if not lplr.Character or not lplr.Character:FindFirstChild('Humanoid') or lplr.Character.Humanoid.Health <= 0 then break end
+                        if v ~= lplr and v.Character and v.Character:FindFirstChild('Humanoid') and v.Character.Humanoid.Health > 0 then
+                            local mag = (lplr.Character.HumanoidRootPart.Position - v.Character.HumanoidRootPart.Position).magnitude
+                            for i,v in v.Character.Humanoid:GetPlayingAnimationTracks() do
+                                v:AdjustSpeed(mag <= 100 and 1 or 0)
+                            end
+                        end
+                    end
+                    task.wait()
+                until not Bloxstrap.Config.DeRendering
+            end)
+        end
+    end
+})
+
+AppearanceGroup:AddToggle("GUIScale", {
+    Text = "GUI Scaler",
+    Description = "Decrease Roblox GUI scales",
+    Default = Bloxstrap.Config.GUIScale,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig('GUIScale', Value)
+        local guisets = {}
+        local funnycon
+        if Value then
+            funnycon = lplr.PlayerGui.ChildAdded:Connect(function(v)
+                if v.Name == 'TouchGui' then return end
+                local oldui = v:FindFirstChildWhichIsA('UIScale', true)
+                if oldui then
+                    table.insert(guisets, {oldscale = oldui.Scale, scaler = oldui})
+                    oldui.Scale = 0.5
+                else
+                    local uiscale = Instance.new('UIScale', v)
+                    uiscale.Scale = 0.7
+                    table.insert(guisets, {oldscale = 9e9, scaler = uiscale})
+                end
+            end)
+            for i,v in lplr.PlayerGui:GetChildren() do
+                if v.Name == 'TouchGui' then continue end
+                local oldui = v:FindFirstChildWhichIsA('UIScale', true)
+                if oldui then
+                    table.insert(guisets, {oldscale = oldui.Scale, scaler = oldui})
+                    oldui.Scale = 0.5
+                else
+                    local uiscale = Instance.new('UIScale', v)
+                    uiscale.Scale = 0.7
+                    table.insert(guisets, {oldscale = 9e9, scaler = uiscale})
+                end
+            end
+            for i,v in game.CoreGui:GetChildren() do
+                local oldui = v:FindFirstChildWhichIsA('UIScale')
+                if oldui then
+                    table.insert(guisets, {oldscale = oldui.Scale, scaler = oldui})
+                    oldui.Scale -= 0.3
+                else
+                    local uiscale = Instance.new('UIScale', v)
+                    uiscale.Scale = 0.7
+                    table.insert(guisets, {oldscale = 9e9, scaler = uiscale})
+                end
+            end
+        else
+            pcall(function() funnycon:Disconnect() funnycon = nil end)
+            for i,v in guisets do
+                if v.oldscale == 9e9 then
+                    v.scaler:Destroy()
+                else
+                    v.scaler.Scale = v.oldscale
+                end
+            end
+            table.clear(guisets)
+        end
+    end
+})
+
+AppearanceGroup:AddToggle("TouchUI", {
+    Text = "Touch GUI Size",
+    Description = "Increases touch GUI size",
+    Default = Bloxstrap.Config.TouchUI,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig('TouchUI', Value)
+        local touchuiscale
+        if Value then
+            touchuiscale = Instance.new('UIScale', lplr.PlayerGui.TouchGui)
+            touchuiscale.Scale = Bloxstrap.Config.TouchUiSize or 1.2
+        else
+            if touchuiscale then
+                touchuiscale:Destroy()
+            end
+        end
+    end
+})
+
+AppearanceGroup:AddSlider("TouchUiSize", {
+    Text = "Touch UI Scale",
+    Min = 1,
+    Max = 2,
+    Increase = 0.1,
+    Default = Bloxstrap.Config.TouchUiSize or 1.2,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig('TouchUiSize', Value)
+    end
+})
+
+AppearanceGroup:AddToggle("Crosshair", {
+    Text = "Crosshair",
+    Default = Bloxstrap.Config.Crosshair,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig('Crosshair', Value)
+        local screengui = Instance.new('ScreenGui', game.CoreGui)
+        screengui.IgnoreGuiInset = true
+        local imagelabel
+        local chosenimage = Bloxstrap.Config.CrosshairImage or ''
+        if Value then
+            imagelabel = Instance.new('ImageLabel', screengui)
+            imagelabel.Size = UDim2.new(0, 19, 0, 19)
+            imagelabel.AnchorPoint = Vector2.new(0.5, 0.5)
+            imagelabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+            imagelabel.BackgroundTransparency = 1
+            imagelabel.Image = chosenimage
+            imagelabel.Visible = true
+            task.spawn(function()
+                repeat
+                    task.wait()
+                    if not lplr.Character or not lplr.Character:FindFirstChild('Head') then continue end
+                    local mag = (lplr.Character.Head.Position - workspace.CurrentCamera.CFrame.Position).magnitude
+                    imagelabel.Visible = (mag <= 3)
+                until not Bloxstrap.Config.Crosshair
+            end)
+        else
+            if imagelabel then
+                imagelabel:Destroy()
+            end
+        end
+    end
+})
+
+AppearanceGroup:AddDropdown("CrosshairImage", {
+    Text = "Crosshair Image",
+    Options = listfiles('Bloxstrap/Images'),
+    Default = Bloxstrap.Config.CrosshairImage,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig('CrosshairImage', Value)
+    end
+})
+
+-- Custom Topbar (Appearance Right)
+local AppearanceGroup2 = Tabs.Appearance:AddRightGroupbox("Customization", "paintbrush-2")
+
+AppearanceGroup2:AddToggle("customtopbar", {
+    Text = "Custom Topbar",
+    Description = "Replaces Roblox topbar with custom design",
+    Default = Bloxstrap.Config.customtopbar,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig('customtopbar', Value)
+        if Value then
+            pcall(function()
+                local fakerobloxbutton = Instance.new('TextButton', game:GetService('CoreGui').TopBarApp.UnibarLeftFrame)
+                fakerobloxbutton.BorderSizePixel = 0
+                fakerobloxbutton.BackgroundTransparency = 0.07
+                fakerobloxbutton.Text = ''
+                fakerobloxbutton.Name = 'funni'
+                fakerobloxbutton.ZIndex = 999
+                fakerobloxbutton.BackgroundColor3 = Color3.new()
+                fakerobloxbutton.Size = UDim2.new(0, 44, 0, 44)
+                fakerobloxbutton.Position = UDim2.new(0, -52, 0, 0)
+                fakerobloxbutton.Visible = true
+                fakerobloxbutton.MouseButton1Click:Connect(function()
+                    firesignal(game:GetService("CoreGui").TopBarApp.MenuIconHolder.TriggerPoint.Background.Activated)
+                end)
+                local imagelabel = Instance.new('ImageLabel', fakerobloxbutton)
+                imagelabel.Size = UDim2.new(0, 22, 0, 22)
+                imagelabel.Position = UDim2.new(0.25, 0, 0.25, 0)
+                imagelabel.BackgroundTransparency = 1
+                imagelabel.Image = getcustomasset('Bloxstrap/icon.png')
+                imagelabel.ImageColor3 = Color3.new(1, 1, 1)
+                Instance.new('UICorner', fakerobloxbutton).CornerRadius = UDim.new(1, 0)
+                game:GetService("CoreGui").TopBarApp.MenuIconHolder.TriggerPoint.Visible = false
+            end)
+        else
+            pcall(function()
+                game:GetService("CoreGui").TopBarApp.MenuIconHolder.TriggerPoint.Visible = true
+                for i,v in game:GetService("CoreGui").TopBarApp.UnibarLeftFrame:GetChildren() do
+                    if v.Name == 'funni' then v:Destroy() end
+                end
+            end)
+        end
+    end
+})
+
+AppearanceGroup2:AddToggle("RotatingHotbar", {
+    Text = "Spin Hotbar",
+    Description = "Spins the Roblox logo around",
+    Default = Bloxstrap.Config.RotatingHotbar,
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig('RotatingHotbar', Value)
+        if Value then
+            task.spawn(function()
+                repeat
+                    pcall(function()
+                        game:GetService("CoreGui").TopBarApp.MenuIconHolder.TriggerPoint.Background.ScalingIcon.Rotation += 1.5
+                    end)
+                    task.wait()
+                until not Bloxstrap.Config.RotatingHotbar
+            end)
+        else
+            pcall(function()
+                game:GetService("CoreGui").TopBarApp.MenuIconHolder.TriggerPoint.Background.ScalingIcon.Rotation = 0
+            end)
+        end
+    end
+})
+
+-- Font Settings
+local AppearanceGroup3 = Tabs.Appearance:AddRightGroupbox("Fonts", "paintbrush-2")
+
+local font = 'Arimo'
+local currentcustomfont = nil
+local updatedfonts = {}
+local uriekfqjkfjqekf = false
+local funnycon84
+
+AppearanceGroup3:AddToggle("customfonttoggle", {
+    Text = "Change Game Fonts",
+    Description = "Changes game font to selected one",
+    Default = Bloxstrap.Config.customfonttoggle,
+    Callback = function(Value)
+        uriekfqjkfjqekf = Value
+        Bloxstrap.UpdateConfig('customfonttoggle', Value)
+        if Value then
+            funnycon84 = game.DescendantAdded:Connect(function(v)
+                if v.ClassName and (v.ClassName == 'TextLabel' or v.ClassName == 'TextButton' or v.ClassName == 'TextBox') and uriekfqjkfjqekf and font ~= nil then
+                    local currfont = font
+                    table.insert(updatedfonts, {inst = v, font = tostring(v.Font):split('.')[3], connection = v:GetPropertyChangedSignal('Font'):Connect(function()
+                        if currentcustomfont then
+                            v.FontFace = currentcustomfont
+                        else
+                            v.Font = Enum.Font[currfont]
+                        end
+                    end)})
+                    if currentcustomfont then
+                        v.FontFace = currentcustomfont
+                    else
+                        v.Font = Enum.Font[currfont]
+                    end
+                end
+            end)
+            for i,v in game:GetDescendants() do
+                if v.ClassName and (v.ClassName == 'TextLabel' or v.ClassName == 'TextButton' or v.ClassName == 'TextBox') and font ~= nil then
+                    local currfont = font
+                    pcall(function() 
+                        table.insert(updatedfonts, {inst = v, font = tostring(v.Font):split('.')[3], connection = v:GetPropertyChangedSignal('Font'):Connect(function()
+                            if currentcustomfont then
+                                v.FontFace = currentcustomfont
+                            else
+                                v.Font = Enum.Font[currfont]
+                            end
+                        end)}) 
+                    end)
+                    if currentcustomfont then
+                        v.FontFace = currentcustomfont
+                    else
+                        v.Font = Enum.Font[currfont]
+                    end
+                end
+            end
+        else
+            pcall(function() funnycon84:Disconnect() end)
+            for i,v in updatedfonts do
+                v.connection:Disconnect()
+                v.connection = nil
+                v.inst.Font = Enum.Font[v.font]
+            end
+            table.clear(updatedfonts)
+        end
+    end
+})
+
+local fontlist = {}
+for i,v in Enum.Font:GetEnumItems() do
+    table.insert(fontlist, tostring(v):split('.')[3])
+end
+
+AppearanceGroup3:AddDropdown("customfontroblox", {
+    Text = "Preset Fonts",
+    Options = fontlist,
+    Default = Bloxstrap.Config.customfontroblox or '',
+    Callback = function(Value)
+        Bloxstrap.UpdateConfig('customfontroblox', Value)
+        font = Value
+    end
+})
+
+local fontlists = {'none'}
+for i,v in listfiles('Bloxstrap/Main/Fonts') do
+    if v:find('.ttf') then
+        table.insert(fontlists, v)
+    end
+end
+
+AppearanceGroup3:AddDropdown("CustomFont", {
+    Text = "Custom Fonts",
+    Options = fontlists,
+    Description = 'Fonts in "Bloxstrap/Main/Fonts" folder',
+    Default = Bloxstrap.Config.CustomFont,
+    Callback = function(Value)
+        if Value == 'none' then
+            currentcustomfont = nil
+            return Bloxstrap.UpdateConfig('CustomFont', '')
+        end
+        Bloxstrap.UpdateConfig('CustomFont', Value)
+        local json = Value:gsub('.ttf', '.json')
+        if not isfile(json) then
+            writefile(json, HttpService:JSONEncode({name = 'font', faces = {
+                {
+                    name = 'Regular',
+                    weight = 600,
+                    style = 'normal',
+                    assetId = getcustomasset(Value)
+                }
+            }}))
+        end
+        currentcustomfont = Font.new(getcustomasset(json), Enum.FontWeight.Regular)
+        if Bloxstrap.Config.customfonttoggle then
+            -- Toggle off and on to refresh
+            local toggle = Tabs.Appearance:GetToggle("customfonttoggle")
+            if toggle then
+                toggle:Toggle(false)
+                toggle:Toggle(true)
+            end
+        end
+    end
+})
+
+-- ===== UI SETTINGS TAB =====
+local UIGroup = Tabs["UI Settings"]:AddLeftGroupbox("UI Settings", "settings")
+
+UIGroup:AddToggle("ShowCustomCursor", {
+    Text = "Custom Cursor",
+    Default = true,
+    Callback = function(Value)
+        -- Obsidian library handles this
+    end
+})
+
+-- Bloxstrap start
+Bloxstrap.canUpdate = true
+
+-- Add icon button to topbar
+pcall(function()
+    local button = Instance.new('TextButton', game:GetService('CoreGui').TopBarApp.UnibarLeftFrame)
+    button.BorderSizePixel = 0
+    button.BackgroundTransparency = 0.07
+    button.Text = ''
+    button.BackgroundColor3 = Color3.new()
+    button.Size = UDim2.new(0, 44, 0, 44)
+    button.Position = UDim2.new(0, 103, 0, 0)
+
+    local imagelabel = Instance.new('ImageLabel', button)
+    imagelabel.Size = UDim2.new(0, 22, 0, 22)
+    imagelabel.Position = UDim2.new(0.25, 0, 0.25, 0)
+    imagelabel.BackgroundTransparency = 1
+    imagelabel.Image = getcustomasset('Bloxstrap/icon.png')
+    imagelabel.ImageColor3 = Color3.new(1, 1, 1)
+
+    local grad = Instance.new('UIGradient', imagelabel)
+    grad.Rotation = 60
+    grad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(219, 89, 171)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(61, 56, 192))
+    })
+
+    Instance.new('UICorner', button).CornerRadius = UDim.new(1, 0)
+    
+    button.MouseButton1Click:Connect(function()
+        Window:Toggle()
+    end)
 end)
-mainFrame.InputChanged:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-		dragInput = input
-	end
-end)
-UserInputService.InputChanged:Connect(function(input)
-	if input == dragInput and dragging then
-		local delta = input.Position - dragStart
-		mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-	end
-end)
 
--- ----------------------------------------------------
--- 2. 서버 이동(Server Hop) 및 차기 서버 자동 실행 등록
--- ----------------------------------------------------
-local function serverHop()
-	pcall(function()
-		local queue = syn and syn.queue_on_teleport or queue_on_teleport or (fluxus and fluxus.queue_on_teleport) or (OXYGEN_LOADED and queue_on_teleport)
-		if queue then
-			queue([[
-				repeat task.wait() until game:IsLoaded()
-				loadstring(game:HttpGet("https://gist.githubusercontent.com/GUMI2029/9c38becd1f90e08aa027b7bda39b73c3/raw/bot_no_seat_slow_obfuscated.lua"))()
-			]])
-		end
-	end)
-
-	pcall(function()
-		local apiPage = HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"))
-		local servers = apiPage and apiPage.data
-		if servers then
-			for _, server in pairs(servers) do
-				if server.playing < server.maxPlayers and server.id ~= game.JobId then
-					TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, player)
-					break
-				end
-			end
-		end
-	end)
-end
-
--- 15분(900초) 카운트다운 루프
-task.spawn(function()
-	while true do
-		task.wait(900)
-		if isServerHopEnabled then
-			autoButton.Text = "이동 중..."
-			serverHop()
-		end
-	end
-end)
-
--- ----------------------------------------------------
--- 3. 외부 스크립트 및 끈질긴 추적 시스템
--- ----------------------------------------------------
-local function runExternalScript()
-	if not isAutoSearching then return end
-	pcall(function()
-		loadstring(game:HttpGet("https://gist.githubusercontent.com/GUMI2029/9c38becd1f90e08aa027b7bda39b73c3/raw/bot_no_seat_slow_obfuscated.lua"))()
-	end)
-end
-
-local function findNearestSeat()
-	if not rootPart then return nil end
-	local closestSeat = nil
-	local shortestDistance = math.huge
-
-	for _, obj in pairs(workspace:GetDescendants()) do
-		if obj:IsA("Seat") or obj:IsA("VehicleSeat") then
-			if obj.Occupant == nil and obj:IsDescendantOf(workspace) then
-				pcall(function()
-					local distance = (rootPart.Position - obj.Position).Magnitude
-					if distance < shortestDistance then
-						shortestDistance = distance
-						closestSeat = obj
-					end
-				end)
-			end
-		end
-	end
-	return closestSeat
-end
-
-local function moveToSeatUntilSat()
-	character = player.Character or player.CharacterAdded:Wait()
-	humanoid = character:WaitForChild("Humanoid")
-	rootPart = character:WaitForChild("HumanoidRootPart")
-
-	runExternalScript()
-
-	currentSeat = findNearestSeat()
-	if currentSeat and currentSeat:IsDescendantOf(workspace) then
-		while isAutoSearching and humanoid.SeatPart == nil and currentSeat.Occupant == nil do
-			pcall(function()
-				humanoid:MoveTo(currentSeat.Position)
-			end)
-			task.wait(0.1)
-		end
-	end
-end
-
--- ----------------------------------------------------
--- 4. 버튼 이벤트 및 토글 연동
--- ----------------------------------------------------
-local function turnOff()
-	isAutoSearching = false
-	autoButton.Text = "오토 매칭: OFF"
-	autoButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-	if humanoid and rootPart then humanoid:MoveTo(rootPart.Position) end
-end
-
-local function turnOn()
-	if humanoid and humanoid.SeatPart then return end
-	isAutoSearching = true
-	autoButton.Text = "오토 매칭: ON"
-	autoButton.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
-	task.spawn(moveToSeatUntilSat)
-end
-
-autoButton.MouseButton1Click:Connect(function()
-	if isAutoSearching then turnOff() else turnOn() end
-end)
-
-hopButton.MouseButton1Click:Connect(function()
-	isServerHopEnabled = not isServerHopEnabled
-	if isServerHopEnabled then
-		hopButton.Text = "15분 자동이동: ON"
-		hopButton.BackgroundColor3 = Color3.fromRGB(130, 30, 180)
-	else
-		hopButton.Text = "15분 자동이동: OFF"
-		hopButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-	end
-end)
-
-forceHopButton.MouseButton1Click:Connect(function()
-	forceHopButton.Text = "이동 요청 중"
-	forceHopButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
-	serverHop()
-end)
-
--- 메인 루프 (자동 의자 찾기 시스템)
-task.spawn(function()
-	while true do
-		if isAutoSearching and humanoid and humanoid.SeatPart == nil then
-			moveToSeatUntilSat()
-		end
-		task.wait(0.3)
-	end
-end)
-
--- 앉기 / 일어나기 자동 연동 리스너
-local function setupSeatListener(char)
-	local hum = char:WaitForChild("Humanoid")
-	hum:GetPropertyChangedSignal("SeatPart"):Connect(function()
-		if hum.SeatPart then
-			if isAutoSearching then turnOff() end
-		else
-			task.wait(0.5)
-			turnOn()
-		end
-	end)
-end
-
-player.CharacterAdded:Connect(function(newChar)
-	character = newChar
-	rootPart = character:WaitForChild("HumanoidRootPart")
-	humanoid = character:WaitForChild("Humanoid")
-	setupSeatListener(newChar)
-	if isAutoSearching then turnOn() end
-end)
-
-if character then 
-	setupSeatListener(character)
-	task.spawn(moveToSeatUntilSat) 
-end
+return Bloxstrap
